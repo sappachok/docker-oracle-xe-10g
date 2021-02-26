@@ -1,60 +1,31 @@
-FROM debian:wheezy
-
-MAINTAINER db520 <dragonbest520@gmail.com>
-
-ENV ORACLE_HOME=/usr/lib/oracle/xe/app/oracle/product/10.2.0/server
-ENV LD_LIBRARY_PATH=$ORACLE_HOME/lib
-ENV PATH=$ORACLE_HOME/bin:$PATH
-ENV ORACLE_SID=XE
-ENV TZ=Asia/Shanghai
-
-#ADD oracle-xe-universal_10.2.0.1-1.1_i386.debaa /
-#ADD oracle-xe-universal_10.2.0.1-1.1_i386.debab /
-#ADD oracle-xe-universal_10.2.0.1-1.1_i386.debac /
-
-ADD oracle-xe_10.2.0.1-1.1_i386.debaa /
-ADD oracle-xe_10.2.0.1-1.1_i386.debab /
-ADD oracle-xe_10.2.0.1-1.1_i386.debac /
-
-RUN dpkg --add-architecture i386 && \
-    apt-get update && apt-get install -y \
-       bc:i386 \
-       libaio1:i386 \
-       libc6-i386 \
-       net-tools \
-       openssh-server && \
-    apt-get clean && \
-    mkdir /var/run/sshd && \
-    echo 'root:admin' | chpasswd && \
-    sed -i 's/PermitRootLogin without-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
-    sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd && \
-    echo "export VISIBLE=now" >> /etc/profile && \
-    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
-    cat /oracle-xe_10.2.0.1-1.1_i386.deba* > /oracle-xe_10.2.0.1-1.1_i386.deb && \ 
-    dpkg -i /oracle-xe_10.2.0.1-1.1_i386.deb && \
-    rm /oracle-xe_10.2.0.1-1.1_i386.deb* && \
-    printf 8080\\n1521\\noracle\\noracle\\ny\\n | /etc/init.d/oracle-xe configure && \
-    echo 'export ORACLE_HOME=/usr/lib/oracle/xe/app/oracle/product/10.2.0/server' >> /etc/bash.bashrc && \
-    echo 'export LD_LIBRARY_PATH=$ORACLE_HOME/lib' >> /etc/bash.bashrc && \
-    echo 'export PATH=$ORACLE_HOME/bin:$PATH' >> /etc/bash.bashrc && \
-    echo 'export ORACLE_SID=XE' >> /etc/bash.bashrc
-
-EXPOSE 1521 22 8080
-
-CMD sed -i -E "s/HOST = [^)]+/HOST = $HOSTNAME/g" /usr/lib/oracle/xe/app/oracle/product/10.2.0/server/network/admin/listener.ora; \
-    sed -i -E "s/HOST = [^)]+/HOST = $HOSTNAME/g" /usr/lib/oracle/xe/app/oracle/product/10.2.0/server/network/admin/tnsnames.ora; \
-    service oracle-xe start; \
-    su -c "$ORACLE_HOME/bin/lsnrctl start" oracle; \
-    echo "alter system disable restricted session;" | sqlplus -s SYSTEM/oracle; \
-    echo "EXEC DBMS_XDB.SETLISTENERLOCALACCESS(FALSE);" | sqlplus -s SYSTEM/oracle; \
-    echo "alter user sys identified by oracle;" | sqlplus -s SYSTEM/oracle; \
-    echo "shutdown immediate;" | sqlplus -s SYS/oracle as sysdba; \
-    echo "STARTUP MOUNT;" | sqlplus -s SYS/oracle as sysdba; \
-    echo "ALTER SYSTEM ENABLE RESTRICTED SESSION;" | sqlplus -s SYS/oracle as sysdba; \
-    echo "ALTER SYSTEM SET JOB_QUEUE_PROCESSES=0;" | sqlplus -s SYS/oracle as sysdba; \
-    echo "ALTER SYSTEM SET AQ_TM_PROCESSES=0;" | sqlplus -s SYS/oracle as sysdba; \
-    echo "ALTER DATABASE OPEN;" | sqlplus -s SYS/oracle as sysdba; \
-    echo "ALTER DATABASE CHARACTER SET INTERNAL_USE ZHS16GBK;" | sqlplus -s SYS/oracle as sysdba; \
-    echo "SHUTDOWN IMMEDIATE;" | sqlplus -s SYS/oracle as sysdba; \
-    echo "STARTUP;" | sqlplus -s SYS/oracle as sysdba; \
-    /usr/sbin/sshd -D
+FROM    oraclelinux:6
+MAINTAINER frits.hoogland@gmail.com
+RUN groupadd -g 54321 oinstall
+RUN groupadd -g 54322 dba
+RUN useradd -m -g oinstall -G oinstall,dba -u 54321 oracle
+RUN yum -y install oracle-rdbms-server-12cR1-preinstall perl wget unzip
+RUN mkdir /u01
+RUN chown oracle:oinstall /u01
+USER    oracle
+WORKDIR /home/oracle
+ENV mosUser=you@example.com mosPass=supersecret DownList=1,2
+RUN wget https://dl.dropboxusercontent.com/u/7787450/getMOSPatch.sh
+RUN wget https://dl.dropboxusercontent.com/u/7787450/responsefile_oracle12102.rsp
+RUN echo "226P;Linux x86-64" > /home/oracle/.getMOSPatch.sh.cfg
+RUN sh /home/oracle/getMOSPatch.sh patch=17694377
+RUN unzip p17694377_121020_Linux-x86-64_1of8.zip
+RUN unzip p17694377_121020_Linux-x86-64_2of8.zip
+RUN rm p17694377_121020_Linux-x86-64_1of8.zip p17694377_121020_Linux-x86-64_2of8.zip
+RUN /home/oracle/database/runInstaller -silent -force -waitforcompletion -responsefile /home/oracle/responsefile_oracle12102.rsp -ignoresysprereqs -ignoreprereq
+USER    root
+RUN /u01/app/oraInventory/orainstRoot.sh
+RUN /u01/app/oracle/product/12.1.0.2/dbhome_1/root.sh -silent
+RUN rm -rf /home/oracle/responsefile_oracle12102.rsp /home/oracle/getMOSPatch.sh /home/oracle/database
+USER    oracle
+WORKDIR /home/oracle
+RUN     mkdir -p /u01/app/oracle/data
+RUN     wget https://dl.dropboxusercontent.com/u/7787450/manage-oracle.sh
+RUN     chmod 700 /home/oracle/manage-oracle.sh
+RUN     wget https://dl.dropboxusercontent.com/u/7787450/db_install.dbt
+EXPOSE  1521
+CMD /home/oracle/manage-oracle.sh
